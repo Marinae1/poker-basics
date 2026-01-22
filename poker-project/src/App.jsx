@@ -39,59 +39,110 @@ const SCENARIO_TYPES = [
   { weight: 0, generator: generateStraightFlush, name: 'Straight Flush', mustShow: true },
   // Equal distribution for learning all hand types
   { weight: 10, generator: generateFourOfAKind, name: 'Four of a Kind' },
-  { weight: 11, generator: generateFullHouse, name: 'Full House' },
-  { weight: 11, generator: generateFlushDraw, name: 'Flush' },
-  { weight: 11, generator: generateStraightDraw, name: 'Straight' },
-  { weight: 11, generator: generateSetOnFlop, name: 'Three of a Kind' },
-  { weight: 11, generator: generateTwoPair, name: 'Two Pair' },
+  { weight: 10, generator: generateFullHouse, name: 'Full House' },
+  { weight: 10, generator: generateFlushDraw, name: 'Flush' },
+  { weight: 10, generator: generateStraightDraw, name: 'Straight' },
+  { weight: 10, generator: generateSetOnFlop, name: 'Three of a Kind' },
+  { weight: 10, generator: generateTwoPair, name: 'Two Pair' },
   { weight: 10, generator: generatePremiumPair, name: 'One Pair' },
   // Evolving hands - realistic probability distribution
-  { weight: 20, generator: generateEvolvingHand, name: 'Evolving Hand' },
+  { weight: 25, generator: generateEvolvingHand, name: 'Evolving Hand' },
 ];
 
-// Track scenario cycling - don't repeat until all types shown
-const seenScenarios = new Set();
-const seenMustShowHands = new Set();
+// Learning sequence: teach then practice pattern
+const LEARNING_ORDER = [
+  'One Pair',
+  'Two Pair', 
+  'Three of a Kind',
+  'Straight',
+  'Flush',
+  'Full House',
+  'Four of a Kind',
+  'Straight Flush',
+  'Royal Flush',
+];
+
+// Track what we've learned and recently shown (no repeats within 8 hands)
+const learnedHands = [];
+const recentHistory = []; // Last 8 scenarios shown
+const NO_REPEAT_WINDOW = 8;
 let handCount = 0;
+let currentLearnIndex = 0;
+
+function addToHistory(scenarioName) {
+  recentHistory.push(scenarioName);
+  if (recentHistory.length > NO_REPEAT_WINDOW) {
+    recentHistory.shift(); // Remove oldest
+  }
+}
 
 function pickScenario() {
   handCount++;
   
-  // Get scenarios with weight > 0 (excludes mustShow-only scenarios)
-  const weightedScenarios = SCENARIO_TYPES.filter(s => s.weight > 0);
+  // Pattern: Learn new hand → Practice with random from learned hands
+  const isLearningHand = handCount % 2 === 1;
   
-  // Reset cycle if all weighted scenarios have been seen
-  if (seenScenarios.size >= weightedScenarios.length) {
-    seenScenarios.clear();
-  }
-  
-  // Check for unseen must-show hands - show them later in the game (hands 10, 15)
-  const unseenMustShow = SCENARIO_TYPES.filter(s => s.mustShow && !seenMustShowHands.has(s.name));
-  if (unseenMustShow.length > 0 && (handCount === 10 || handCount === 15)) {
-    const forced = unseenMustShow[Math.floor(Math.random() * unseenMustShow.length)];
-    seenMustShowHands.add(forced.name);
-    return forced;
-  }
-  
-  // Get unseen weighted scenarios for cycling
-  const unseenWeighted = weightedScenarios.filter(s => !seenScenarios.has(s.name));
-  
-  // Pick from unseen scenarios (weighted random)
-  const pool = unseenWeighted.length > 0 ? unseenWeighted : weightedScenarios;
-  const totalWeight = pool.reduce((sum, s) => sum + s.weight, 0);
-  let random = Math.random() * totalWeight;
-  
-  for (const scenario of pool) {
-    random -= scenario.weight;
-    if (random <= 0) {
-      seenScenarios.add(scenario.name);
-      if (scenario.mustShow) seenMustShowHands.add(scenario.name);
+  if (isLearningHand && currentLearnIndex < LEARNING_ORDER.length) {
+    // LEARN: Show the next hand type in order (skip if in recent history)
+    let targetName = LEARNING_ORDER[currentLearnIndex];
+    
+    // If this hand was recently shown, skip to next available
+    while (recentHistory.includes(targetName) && currentLearnIndex < LEARNING_ORDER.length - 1) {
+      currentLearnIndex++;
+      targetName = LEARNING_ORDER[currentLearnIndex];
+    }
+    
+    const scenario = SCENARIO_TYPES.find(s => s.name === targetName);
+    if (scenario && !recentHistory.includes(targetName)) {
+      learnedHands.push(targetName);
+      addToHistory(targetName);
+      currentLearnIndex++;
       return scenario;
     }
   }
   
-  const fallback = pool[pool.length - 1];
-  seenScenarios.add(fallback.name);
+  // PRACTICE: Random from hands we've learned (excluding recent history)
+  if (learnedHands.length > 0) {
+    const practicePool = SCENARIO_TYPES.filter(s => 
+      learnedHands.includes(s.name) && !recentHistory.includes(s.name)
+    );
+    
+    if (practicePool.length > 0) {
+      const totalWeight = practicePool.reduce((sum, s) => sum + (s.weight || 10), 0);
+      let random = Math.random() * totalWeight;
+      for (const scenario of practicePool) {
+        random -= (scenario.weight || 10);
+        if (random <= 0) {
+          addToHistory(scenario.name);
+          return scenario;
+        }
+      }
+      const picked = practicePool[Math.floor(Math.random() * practicePool.length)];
+      addToHistory(picked.name);
+      return picked;
+    }
+  }
+  
+  // Fallback: Full random mode (excluding recent history)
+  const allWeighted = SCENARIO_TYPES.filter(s => 
+    (s.weight > 0 || learnedHands.includes(s.name)) && !recentHistory.includes(s.name)
+  );
+  
+  // If all are in recent history, allow any
+  const pool = allWeighted.length > 0 ? allWeighted : SCENARIO_TYPES.filter(s => s.weight > 0);
+  
+  const totalWeight = pool.reduce((sum, s) => sum + (s.weight || 10), 0);
+  let random = Math.random() * totalWeight;
+  for (const scenario of pool) {
+    random -= (scenario.weight || 10);
+    if (random <= 0) {
+      addToHistory(scenario.name);
+      return scenario;
+    }
+  }
+  
+  const fallback = pool[Math.floor(Math.random() * pool.length)];
+  addToHistory(fallback.name);
   return fallback;
 }
 
