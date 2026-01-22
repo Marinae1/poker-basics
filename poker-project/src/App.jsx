@@ -557,7 +557,7 @@ export default function PokerBasics() {
       fontSize: 18,
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Lato:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Lato:wght@400;700&family=Nunito:wght@700;800;900&display=swap');
         @keyframes shimmer {
           0% { background-position: -200% center; }
           100% { background-position: 200% center; }
@@ -576,6 +576,15 @@ export default function PokerBasics() {
       
       <div style={{ maxWidth: 800, margin: '0 auto', padding: '32px 24px' }}>
         
+        {/* Boosted Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 28 }}>
+          <img 
+            src="/Boosted Logo.png" 
+            alt="Boosted" 
+            style={{ height: 55, marginLeft: -4 }}
+          />
+        </div>
+
         {/* Header */}
         <header style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginBottom: 14 }}>
@@ -898,7 +907,7 @@ export default function PokerBasics() {
         {/* Footer */}
         <footer style={{ textAlign: 'center', marginTop: 32, paddingTop: 16, borderTop: '1px solid #2d4a2d' }}>
           <p style={{ color: '#4a5a4a', fontSize: 12, fontStyle: 'italic', margin: 0 }}>
-            100% Vibe Coded by Marina and Claude
+            100% vibe coded by Marina + Claude
           </p>
         </footer>
       </div>
