@@ -34,24 +34,47 @@ const QUICK_TIPS = [
 // ============================================
 
 const SCENARIO_TYPES = [
-  { weight: 12, generator: generatePremiumPair },
-  { weight: 15, generator: generateFlushDraw },
-  { weight: 12, generator: generateStraightDraw },
-  { weight: 10, generator: generateSetOnFlop },
-  { weight: 12, generator: generateTwoPair },
-  { weight: 8, generator: generateMonster },
-  { weight: 10, generator: generateSuitedConnectors },
-  { weight: 8, generator: generateBigSlick },
-  { weight: 5, generator: generateCooler },
-  { weight: 8, generator: generateRandom },
+  // Rare hands - no weight, but mustShow once per session
+  { weight: 0, generator: generateRoyalFlush, name: 'Royal Flush', mustShow: true },
+  { weight: 0, generator: generateStraightFlush, name: 'Straight Flush', mustShow: true },
+  // Equal distribution for learning all hand types
+  { weight: 10, generator: generateFourOfAKind, name: 'Four of a Kind' },
+  { weight: 10, generator: generateFullHouse, name: 'Full House' },
+  { weight: 10, generator: generateFlushDraw, name: 'Flush' },
+  { weight: 10, generator: generateStraightDraw, name: 'Straight' },
+  { weight: 10, generator: generateSetOnFlop, name: 'Three of a Kind' },
+  { weight: 10, generator: generateTwoPair, name: 'Two Pair' },
+  { weight: 10, generator: generatePremiumPair, name: 'One Pair' },
+  // Evolving hands - realistic probability distribution
+  { weight: 25, generator: generateEvolvingHand, name: 'Evolving Hand' },
 ];
 
+// Track which "must show" hands have been seen this session
+const seenMustShowHands = new Set();
+let handCount = 0;
+
 function pickScenario() {
+  handCount++;
+  
+  // Check if there are must-show hands that haven't been seen yet
+  const unseenMustShow = SCENARIO_TYPES.filter(s => s.mustShow && !seenMustShowHands.has(s.name));
+  
+  // Force a must-show hand every few hands if not seen yet
+  if (unseenMustShow.length > 0 && (handCount === 3 || handCount === 6 || handCount % 8 === 0)) {
+    const forced = unseenMustShow[Math.floor(Math.random() * unseenMustShow.length)];
+    seenMustShowHands.add(forced.name);
+    return forced;
+  }
+  
+  // Normal weighted random selection
   const totalWeight = SCENARIO_TYPES.reduce((sum, s) => sum + s.weight, 0);
   let random = Math.random() * totalWeight;
   for (const scenario of SCENARIO_TYPES) {
     random -= scenario.weight;
-    if (random <= 0) return scenario;
+    if (random <= 0) {
+      if (scenario.mustShow) seenMustShowHands.add(scenario.name);
+      return scenario;
+    }
   }
   return SCENARIO_TYPES[SCENARIO_TYPES.length - 1];
 }
@@ -179,9 +202,154 @@ function generateTwoPair() {
   return { hole, community: [...shuffleArray(flop), ...remaining] };
 }
 
-function generateMonster() {
-  const monsterType = Math.random();
-  if (monsterType < 0.5) {
+function generateSuitedConnectors() {
+  const suit = getRandomSuit();
+  const startIdx = Math.floor(Math.random() * 8) + 2;
+  const hole = [makeCard(RANKS[startIdx], suit), makeCard(RANKS[startIdx + 1], suit)];
+  const community = fillRemainingCards(hole, [], 5);
+  return { hole, community };
+}
+
+function generateRandom() {
+  const deck = [];
+  SUITS.forEach(suit => RANKS.forEach(rank => deck.push(makeCard(rank, suit))));
+  const shuffled = shuffleArray(deck);
+  return { hole: [shuffled[0], shuffled[1]], community: shuffled.slice(2, 7) };
+}
+
+// Royal Flush - A K Q J 10 of same suit
+function generateRoyalFlush() {
+  const suit = getRandomSuit();
+  const royalRanks = ['A', 'K', 'Q', 'J', '10'];
+  // Give player 2 of the royal cards
+  const playerCards = shuffleArray([...royalRanks]).slice(0, 2);
+  const hole = playerCards.map(r => makeCard(r, suit));
+  const boardRoyals = royalRanks.filter(r => !playerCards.includes(r));
+  const royalCommunity = boardRoyals.map(r => makeCard(r, suit));
+  // Add 2 random cards to community
+  const remaining = fillRemainingCards(hole, royalCommunity, 2);
+  const community = [...shuffleArray([...royalCommunity, remaining[0]]), remaining[1]];
+  return { hole, community };
+}
+
+// Straight Flush - 5 consecutive cards of same suit (not royal)
+function generateStraightFlush() {
+  const suit = getRandomSuit();
+  // Start from 2-9 to avoid royal flush
+  const startIdx = Math.floor(Math.random() * 8) + 1; // indices 1-8 (K down to 6)
+  const sfRanks = RANKS.slice(startIdx, startIdx + 5).reverse();
+  if (sfRanks.length < 5) return generateStraightFlush();
+  // Give player 2 cards
+  const playerCards = shuffleArray([...sfRanks]).slice(0, 2);
+  const hole = playerCards.map(r => makeCard(r, suit));
+  const boardSF = sfRanks.filter(r => !playerCards.includes(r));
+  const sfCommunity = boardSF.map(r => makeCard(r, suit));
+  const remaining = fillRemainingCards(hole, sfCommunity, 2);
+  const community = [...shuffleArray([...sfCommunity, remaining[0]]), remaining[1]];
+  return { hole, community };
+}
+
+// Four of a Kind - 4 cards of same rank
+function generateFourOfAKind() {
+  const rank = getRandomRank();
+  const suits = shuffleArray([...SUITS]);
+  // Give player a pair
+  const hole = [makeCard(rank, suits[0]), makeCard(rank, suits[1])];
+  // Put other 2 on board
+  const quads = [makeCard(rank, suits[2]), makeCard(rank, suits[3])];
+  const remaining = fillRemainingCards(hole, quads, 3);
+  const community = shuffleArray([...quads, ...remaining]);
+  return { hole, community };
+}
+
+// Full House - 3 of a kind + pair
+function generateFullHouse() {
+  const tripRank = getRandomRank();
+  const pairRank = getRandomRank([tripRank]);
+  const tripSuits = shuffleArray([...SUITS]).slice(0, 3);
+  const pairSuits = shuffleArray([...SUITS]).slice(0, 2);
+  // Give player a pair that will become trips
+  const hole = [makeCard(tripRank, tripSuits[0]), makeCard(tripRank, tripSuits[1])];
+  // Board has third trip card and the pair
+  const fhCards = [
+    makeCard(tripRank, tripSuits[2]),
+    makeCard(pairRank, pairSuits[0]),
+    makeCard(pairRank, pairSuits[1])
+  ];
+  const remaining = fillRemainingCards(hole, fhCards, 2);
+  const community = shuffleArray([...fhCards, ...remaining]);
+  return { hole, community };
+}
+
+// Evolving Hand - realistic probability distribution for pattern recognition
+function generateEvolvingHand() {
+  // Weighted random based on real poker probabilities
+  const roll = Math.random() * 100;
+  
+  if (roll < 40) {
+    // ONE PAIR (most common ~42%) - hole card pairs on board
+    const rank = getRandomRank();
+    const hole = [makeCard(rank, getRandomSuit()), makeCard(getRandomRank([rank]), getRandomSuit())];
+    const flop = [
+      makeCard(rank, getRandomSuit([hole[0].suit])),
+      makeCard(getRandomRank([rank, hole[1].rank]), getRandomSuit()),
+      makeCard(getRandomRank([rank, hole[1].rank]), getRandomSuit())
+    ];
+    const remaining = fillRemainingCards(hole, flop, 2);
+    return { hole, community: [...flop, ...remaining] };
+  } else if (roll < 65) {
+    // TWO PAIR (~25%) - both hole cards pair up
+    const rank1 = getRandomRank();
+    const rank2 = getRandomRank([rank1]);
+    const hole = [makeCard(rank1, getRandomSuit()), makeCard(rank2, getRandomSuit())];
+    const flop = [
+      makeCard(rank1, getRandomSuit([hole[0].suit])),
+      makeCard(rank2, getRandomSuit([hole[1].suit])),
+      makeCard(getRandomRank([rank1, rank2]), getRandomSuit())
+    ];
+    const remaining = fillRemainingCards(hole, flop, 2);
+    return { hole, community: [...flop, ...remaining] };
+  } else if (roll < 80) {
+    // TRIPS (~15%) - pocket pair hits set
+    const rank = getRandomRank();
+    const suits = shuffleArray([...SUITS]);
+    const hole = [makeCard(rank, suits[0]), makeCard(rank, suits[1])];
+    const flop = [
+      makeCard(rank, suits[2]),
+      makeCard(getRandomRank([rank]), getRandomSuit()),
+      makeCard(getRandomRank([rank]), getRandomSuit())
+    ];
+    const remaining = fillRemainingCards(hole, flop, 2);
+    return { hole, community: [...flop, ...remaining] };
+  } else if (roll < 88) {
+    // STRAIGHT (~8%) - connected cards complete
+    const startIdx = Math.floor(Math.random() * 8) + 1;
+    const straightRanks = RANKS.slice(startIdx, startIdx + 5).reverse();
+    if (straightRanks.length < 5) return generateEvolvingHand();
+    const hole = [makeCard(straightRanks[0], getRandomSuit()), makeCard(straightRanks[1], getRandomSuit())];
+    const flop = [
+      makeCard(straightRanks[2], getRandomSuit()),
+      makeCard(straightRanks[3], getRandomSuit()),
+      makeCard(getRandomRank(straightRanks), getRandomSuit())
+    ];
+    const turn = makeCard(getRandomRank(straightRanks), getRandomSuit());
+    const river = makeCard(straightRanks[4], getRandomSuit());
+    return { hole, community: [...flop, turn, river] };
+  } else if (roll < 94) {
+    // FLUSH (~6%) - suited cards complete
+    const suit = getRandomSuit();
+    const ranks = shuffleArray([...RANKS]).slice(0, 5);
+    const hole = [makeCard(ranks[0], suit), makeCard(ranks[1], suit)];
+    const flop = [
+      makeCard(ranks[2], suit),
+      makeCard(ranks[3], suit),
+      makeCard(getRandomRank(ranks), getRandomSuit([suit]))
+    ];
+    const turn = makeCard(getRandomRank(ranks), getRandomSuit([suit]));
+    const river = makeCard(ranks[4], suit);
+    return { hole, community: [...flop, turn, river] };
+  } else if (roll < 98) {
+    // FULL HOUSE (~4%) - trips + pair
     const tripRank = getRandomRank();
     const pairRank = getRandomRank([tripRank]);
     const suits = shuffleArray([...SUITS]);
@@ -192,8 +360,9 @@ function generateMonster() {
       makeCard(pairRank, getRandomSuit())
     ];
     const remaining = fillRemainingCards(hole, flop, 2);
-    return { hole, community: [...shuffleArray(flop), ...remaining] };
-  } else if (monsterType < 0.8) {
+    return { hole, community: [...flop, ...remaining] };
+  } else {
+    // QUADS (~2%) - four of a kind
     const rank = getRandomRank();
     const hole = [makeCard(rank, '♠'), makeCard(rank, '♥')];
     const flop = [
@@ -202,87 +371,8 @@ function generateMonster() {
       makeCard(getRandomRank([rank]), getRandomSuit())
     ];
     const remaining = fillRemainingCards(hole, flop, 2);
-    return { hole, community: [...shuffleArray(flop), ...remaining] };
-  } else {
-    const suit = getRandomSuit();
-    const startIdx = Math.floor(Math.random() * 9) + 1;
-    const sfRanks = RANKS.slice(startIdx, startIdx + 5).reverse();
-    if (sfRanks.length < 5) return generateMonster();
-    const hole = [makeCard(sfRanks[0], suit), makeCard(sfRanks[1], suit)];
-    const flop = [
-      makeCard(sfRanks[2], suit),
-      makeCard(sfRanks[3], suit),
-      makeCard(getRandomRank(sfRanks), getRandomSuit([suit]))
-    ];
-    const turn = makeCard(sfRanks[4], suit);
-    const remaining = fillRemainingCards(hole, [...flop, turn], 1);
-    return { hole, community: [...shuffleArray(flop), turn, remaining[0]] };
+    return { hole, community: [...flop, ...remaining] };
   }
-}
-
-function generateSuitedConnectors() {
-  const suit = getRandomSuit();
-  const startIdx = Math.floor(Math.random() * 8) + 2;
-  const hole = [makeCard(RANKS[startIdx], suit), makeCard(RANKS[startIdx + 1], suit)];
-  const community = fillRemainingCards(hole, [], 5);
-  return { hole, community };
-}
-
-function generateBigSlick() {
-  const suited = Math.random() > 0.5;
-  const suit1 = getRandomSuit();
-  const suit2 = suited ? suit1 : getRandomSuit([suit1]);
-  const hole = [makeCard('A', suit1), makeCard('K', suit2)];
-  const hitType = Math.random();
-  let flop;
-  if (hitType < 0.4) {
-    const hitRank = Math.random() > 0.5 ? 'A' : 'K';
-    flop = [
-      makeCard(hitRank, getRandomSuit([suit1, suit2])),
-      makeCard(getRandomRank(['A', 'K']), getRandomSuit()),
-      makeCard(getRandomRank(['A', 'K']), getRandomSuit())
-    ];
-  } else {
-    flop = fillRemainingCards(hole, [], 3).filter(c => c.rank !== 'A' && c.rank !== 'K').slice(0, 3);
-    if (flop.length < 3) flop = fillRemainingCards(hole, [], 3);
-  }
-  const remaining = fillRemainingCards(hole, flop, 2);
-  return { hole, community: [...flop, ...remaining] };
-}
-
-function generateCooler() {
-  const coolerType = Math.random();
-  if (coolerType < 0.5) {
-    const rank = getRandomRank(['A', 'K']);
-    const suits = shuffleArray([...SUITS]);
-    const hole = [makeCard(rank, suits[0]), makeCard(rank, suits[1])];
-    const higherRank = RANKS[RANKS.indexOf(rank) - 1] || 'A';
-    const flop = [
-      makeCard(rank, suits[2]),
-      makeCard(higherRank, getRandomSuit()),
-      makeCard(higherRank, getRandomSuit())
-    ];
-    const remaining = fillRemainingCards(hole, flop, 2);
-    return { hole, community: [...shuffleArray(flop), ...remaining] };
-  } else {
-    const suit = getRandomSuit();
-    const ranks = shuffleArray([...RANKS]);
-    const hole = [makeCard(ranks[5], suit), makeCard(ranks[6], suit)];
-    const flop = [
-      makeCard(ranks[0], suit),
-      makeCard(ranks[7], suit),
-      makeCard(ranks[8], suit)
-    ];
-    const remaining = fillRemainingCards(hole, flop, 2);
-    return { hole, community: [...shuffleArray(flop), ...remaining] };
-  }
-}
-
-function generateRandom() {
-  const deck = [];
-  SUITS.forEach(suit => RANKS.forEach(rank => deck.push(makeCard(rank, suit))));
-  const shuffled = shuffleArray(deck);
-  return { hole: [shuffled[0], shuffled[1]], community: shuffled.slice(2, 7) };
 }
 
 // ============================================
@@ -576,15 +666,6 @@ export default function PokerBasics() {
       
       <div style={{ maxWidth: 800, margin: '0 auto', padding: '32px 24px' }}>
         
-        {/* Boosted Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 28 }}>
-          <img 
-            src="/Boosted Logo.png" 
-            alt="Boosted" 
-            style={{ height: 55, marginLeft: -4 }}
-          />
-        </div>
-
         {/* Header */}
         <header style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginBottom: 14 }}>
@@ -610,6 +691,14 @@ export default function PokerBasics() {
           <p style={{ color: '#6b7b6b', fontSize: 14, marginTop: 8, letterSpacing: '2px', textTransform: 'uppercase' }}>
             Learn to Play
           </p>
+          {/* Boosted Logo */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 12 }}>
+            <img 
+              src="/Boosted Logo.png" 
+              alt="Boosted" 
+              style={{ height: 12, opacity: 0.5 }}
+            />
+          </div>
         </header>
 
         {/* Navigation */}
