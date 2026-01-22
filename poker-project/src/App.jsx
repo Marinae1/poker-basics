@@ -39,44 +39,60 @@ const SCENARIO_TYPES = [
   { weight: 0, generator: generateStraightFlush, name: 'Straight Flush', mustShow: true },
   // Equal distribution for learning all hand types
   { weight: 10, generator: generateFourOfAKind, name: 'Four of a Kind' },
-  { weight: 10, generator: generateFullHouse, name: 'Full House' },
-  { weight: 10, generator: generateFlushDraw, name: 'Flush' },
-  { weight: 10, generator: generateStraightDraw, name: 'Straight' },
-  { weight: 10, generator: generateSetOnFlop, name: 'Three of a Kind' },
-  { weight: 10, generator: generateTwoPair, name: 'Two Pair' },
+  { weight: 11, generator: generateFullHouse, name: 'Full House' },
+  { weight: 11, generator: generateFlushDraw, name: 'Flush' },
+  { weight: 11, generator: generateStraightDraw, name: 'Straight' },
+  { weight: 11, generator: generateSetOnFlop, name: 'Three of a Kind' },
+  { weight: 11, generator: generateTwoPair, name: 'Two Pair' },
   { weight: 10, generator: generatePremiumPair, name: 'One Pair' },
   // Evolving hands - realistic probability distribution
-  { weight: 25, generator: generateEvolvingHand, name: 'Evolving Hand' },
+  { weight: 20, generator: generateEvolvingHand, name: 'Evolving Hand' },
 ];
 
-// Track which "must show" hands have been seen this session
+// Track scenario cycling - don't repeat until all types shown
+const seenScenarios = new Set();
 const seenMustShowHands = new Set();
 let handCount = 0;
 
 function pickScenario() {
   handCount++;
   
-  // Check if there are must-show hands that haven't been seen yet
-  const unseenMustShow = SCENARIO_TYPES.filter(s => s.mustShow && !seenMustShowHands.has(s.name));
+  // Get scenarios with weight > 0 (excludes mustShow-only scenarios)
+  const weightedScenarios = SCENARIO_TYPES.filter(s => s.weight > 0);
   
-  // Force a must-show hand every few hands if not seen yet
-  if (unseenMustShow.length > 0 && (handCount === 3 || handCount === 6 || handCount % 8 === 0)) {
+  // Reset cycle if all weighted scenarios have been seen
+  if (seenScenarios.size >= weightedScenarios.length) {
+    seenScenarios.clear();
+  }
+  
+  // Check for unseen must-show hands - show them later in the game (hands 10, 15)
+  const unseenMustShow = SCENARIO_TYPES.filter(s => s.mustShow && !seenMustShowHands.has(s.name));
+  if (unseenMustShow.length > 0 && (handCount === 10 || handCount === 15)) {
     const forced = unseenMustShow[Math.floor(Math.random() * unseenMustShow.length)];
     seenMustShowHands.add(forced.name);
     return forced;
   }
   
-  // Normal weighted random selection
-  const totalWeight = SCENARIO_TYPES.reduce((sum, s) => sum + s.weight, 0);
+  // Get unseen weighted scenarios for cycling
+  const unseenWeighted = weightedScenarios.filter(s => !seenScenarios.has(s.name));
+  
+  // Pick from unseen scenarios (weighted random)
+  const pool = unseenWeighted.length > 0 ? unseenWeighted : weightedScenarios;
+  const totalWeight = pool.reduce((sum, s) => sum + s.weight, 0);
   let random = Math.random() * totalWeight;
-  for (const scenario of SCENARIO_TYPES) {
+  
+  for (const scenario of pool) {
     random -= scenario.weight;
     if (random <= 0) {
+      seenScenarios.add(scenario.name);
       if (scenario.mustShow) seenMustShowHands.add(scenario.name);
       return scenario;
     }
   }
-  return SCENARIO_TYPES[SCENARIO_TYPES.length - 1];
+  
+  const fallback = pool[pool.length - 1];
+  seenScenarios.add(fallback.name);
+  return fallback;
 }
 
 function makeCard(rank, suit) {
