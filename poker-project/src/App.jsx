@@ -318,6 +318,12 @@ const evaluate5 = (cards) => {
   ranks.forEach(r => counts[r] = (counts[r] || 0) + 1);
   const freq = Object.values(counts).sort((a, b) => b - a);
   const unique = [...new Set(ranks)].sort((a, b) => b - a);
+  
+  // Get ranks sorted by frequency then by value (for tiebreakers)
+  const ranksByFreq = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1] || Number(b[0]) - Number(a[0]))
+    .map(([rank]) => Number(rank));
+  
   let isStraight = false, straightHigh = 0;
   if (unique.length >= 5) {
     for (let i = 0; i <= unique.length - 5; i++) {
@@ -327,16 +333,43 @@ const evaluate5 = (cards) => {
       isStraight = true; straightHigh = 5;
     }
   }
-  if (isFlush && isStraight && straightHigh === 14) return { name: 'Royal Flush', strength: 10000 };
-  if (isFlush && isStraight) return { name: 'Straight Flush', strength: 9000 + straightHigh };
-  if (freq[0] === 4) return { name: 'Four of a Kind', strength: 8000 };
-  if (freq[0] === 3 && freq[1] === 2) return { name: 'Full House', strength: 7000 };
-  if (isFlush) return { name: 'Flush', strength: 6000 };
-  if (isStraight) return { name: 'Straight', strength: 5000 + straightHigh };
-  if (freq[0] === 3) return { name: 'Three of a Kind', strength: 4000 };
-  if (freq[0] === 2 && freq[1] === 2) return { name: 'Two Pair', strength: 3000 };
-  if (freq[0] === 2) return { name: 'One Pair', strength: 2000 };
-  return { name: 'High Card', strength: 1000 };
+  
+  // Calculate strength with proper tiebreakers
+  if (isFlush && isStraight && straightHigh === 14) return { name: 'Royal Flush', strength: 10000000 };
+  if (isFlush && isStraight) return { name: 'Straight Flush', strength: 9000000 + straightHigh };
+  if (freq[0] === 4) {
+    const quadRank = ranksByFreq[0];
+    const kicker = ranksByFreq[1];
+    return { name: 'Four of a Kind', strength: 8000000 + quadRank * 100 + kicker };
+  }
+  if (freq[0] === 3 && freq[1] === 2) {
+    const tripRank = ranksByFreq[0];
+    const pairRank = ranksByFreq[1];
+    return { name: 'Full House', strength: 7000000 + tripRank * 100 + pairRank };
+  }
+  if (isFlush) {
+    const flushStrength = ranks[0] * 10000 + ranks[1] * 1000 + ranks[2] * 100 + ranks[3] * 10 + ranks[4];
+    return { name: 'Flush', strength: 6000000 + flushStrength };
+  }
+  if (isStraight) return { name: 'Straight', strength: 5000000 + straightHigh };
+  if (freq[0] === 3) {
+    const tripRank = ranksByFreq[0];
+    const kickers = ranksByFreq.slice(1);
+    return { name: 'Three of a Kind', strength: 4000000 + tripRank * 10000 + kickers[0] * 100 + kickers[1] };
+  }
+  if (freq[0] === 2 && freq[1] === 2) {
+    const highPair = Math.max(ranksByFreq[0], ranksByFreq[1]);
+    const lowPair = Math.min(ranksByFreq[0], ranksByFreq[1]);
+    const kicker = ranksByFreq[2];
+    return { name: 'Two Pair', strength: 3000000 + highPair * 10000 + lowPair * 100 + kicker };
+  }
+  if (freq[0] === 2) {
+    const pairRank = ranksByFreq[0];
+    const kickers = ranksByFreq.slice(1);
+    return { name: 'One Pair', strength: 2000000 + pairRank * 10000 + kickers[0] * 100 + kickers[1] * 10 + kickers[2] };
+  }
+  const highCardStrength = ranks[0] * 10000 + ranks[1] * 1000 + ranks[2] * 100 + ranks[3] * 10 + ranks[4];
+  return { name: 'High Card', strength: 1000000 + highCardStrength };
 };
 
 // ============================================
@@ -344,8 +377,8 @@ const evaluate5 = (cards) => {
 // ============================================
 
 const Card = ({ card, small, faceDown, highlight }) => {
-  const width = small ? 48 : 64;
-  const height = small ? 72 : 96;
+  const width = small ? 56 : 72;
+  const height = small ? 84 : 108;
   
   if (faceDown) {
     return (
@@ -375,8 +408,8 @@ const Card = ({ card, small, faceDown, highlight }) => {
   const isRed = data.suit === '♥' || data.suit === '♦';
   const color = isRed ? '#c41e3a' : '#1a1a2e';
   
-  const cornerFontSize = small ? 11 : 13;
-  const centerFontSize = small ? 24 : 32;
+  const cornerFontSize = small ? 12 : 15;
+  const centerFontSize = small ? 28 : 36;
   
   return (
     <div style={{
@@ -385,11 +418,12 @@ const Card = ({ card, small, faceDown, highlight }) => {
       borderRadius: 8,
       background: 'linear-gradient(180deg, #ffffff 0%, #f5f0e6 100%)',
       boxShadow: highlight 
-        ? '0 0 16px rgba(201,162,39,0.8), 0 4px 12px rgba(0,0,0,0.4)'
+        ? '0 0 8px #c9a227, 0 0 16px rgba(201,162,39,0.6), 0 4px 12px rgba(0,0,0,0.4)'
         : '0 4px 12px rgba(0,0,0,0.4)',
-      border: highlight ? '2px solid #c9a227' : '1px solid #d4c5a9',
+      border: highlight ? '3px solid #f4e4a6' : '1px solid #d4c5a9',
       position: 'relative',
       fontFamily: "Georgia, serif",
+      animation: highlight ? 'winningGlow 1.5s ease-in-out infinite' : 'none',
     }}>
       {/* Top left */}
       <div style={{
@@ -510,7 +544,9 @@ export default function PokerBasics() {
 
   const allCards = gameData ? [...gameData.hole, ...visibleCommunity] : [];
   const result = allCards.length >= 5 ? evaluateHand(allCards) : null;
-  const winningCardIds = result ? new Set(result.cards.map(c => c.id)) : new Set();
+  const isRiver = stage === 'river';
+  const winningCardIds = result && isRiver ? new Set(result.cards.map(c => c.id)) : new Set();
+  const handInfo = result ? HANDS.find(hand => hand.name === result.name) : null;
 
   return (
     <div style={{
@@ -518,6 +554,7 @@ export default function PokerBasics() {
       background: '#0a0a12',
       fontFamily: "'Lato', sans-serif",
       color: '#e8e4d9',
+      fontSize: 16,
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Lato:wght@400;700&display=swap');
@@ -525,21 +562,31 @@ export default function PokerBasics() {
           0% { background-position: -200% center; }
           100% { background-position: 200% center; }
         }
+        @keyframes winningGlow {
+          0%, 100% { 
+            box-shadow: 0 0 8px #c9a227, 0 0 16px rgba(201,162,39,0.6), 0 4px 12px rgba(0,0,0,0.4);
+            transform: scale(1);
+          }
+          50% { 
+            box-shadow: 0 0 16px #f4e4a6, 0 0 28px rgba(244,228,166,0.8), 0 0 40px rgba(201,162,39,0.5), 0 4px 12px rgba(0,0,0,0.4);
+            transform: scale(1.03);
+          }
+        }
       `}</style>
       
-      <div style={{ maxWidth: 500, margin: '0 auto', padding: '20px 16px' }}>
+      <div style={{ maxWidth: 640, margin: '0 auto', padding: '28px 20px' }}>
         
         {/* Header */}
         <header style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 20 }}>♠</span>
-            <span style={{ fontSize: 20, color: '#c41e3a' }}>♥</span>
-            <span style={{ fontSize: 20, color: '#c41e3a' }}>♦</span>
-            <span style={{ fontSize: 20 }}>♣</span>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+            <span style={{ fontSize: 24 }}>♠</span>
+            <span style={{ fontSize: 24, color: '#c41e3a' }}>♥</span>
+            <span style={{ fontSize: 24, color: '#c41e3a' }}>♦</span>
+            <span style={{ fontSize: 24 }}>♣</span>
           </div>
           <h1 style={{
             fontFamily: "'Cinzel', serif",
-            fontSize: 26,
+            fontSize: 30,
             fontWeight: 700,
             margin: 0,
             background: 'linear-gradient(90deg, #c9a227, #f4e4a6, #c9a227, #f4e4a6, #c9a227)',
@@ -551,7 +598,7 @@ export default function PokerBasics() {
           }}>
             POKER BASICS
           </h1>
-          <p style={{ color: '#6b7b6b', fontSize: 11, marginTop: 6, letterSpacing: '2px', textTransform: 'uppercase' }}>
+          <p style={{ color: '#6b7b6b', fontSize: 12, marginTop: 6, letterSpacing: '2px', textTransform: 'uppercase' }}>
             Learn to Play
           </p>
         </header>
@@ -577,13 +624,13 @@ export default function PokerBasics() {
               onClick={() => setView(tab.id)}
               style={{
                 flex: 1,
-                padding: '10px 6px',
+                padding: '12px 8px',
                 border: 'none',
                 borderRadius: 8,
                 background: view === tab.id ? 'linear-gradient(180deg, #c9a227 0%, #8b6914 100%)' : 'transparent',
                 color: view === tab.id ? '#1a1a2e' : '#6b7b6b',
                 fontFamily: "'Cinzel', serif",
-                fontSize: 11,
+                fontSize: 13,
                 fontWeight: 700,
                 cursor: 'pointer',
                 textTransform: 'uppercase',
@@ -601,18 +648,31 @@ export default function PokerBasics() {
             <div style={{
               background: 'radial-gradient(ellipse at center, #1e5631 0%, #0d2818 70%)',
               borderRadius: 16,
-              padding: 28,
+              padding: 30,
               border: '6px solid #2c1810',
               boxShadow: 'inset 0 0 40px rgba(0,0,0,0.5), 0 0 0 2px #c9a227',
               marginBottom: 20,
             }}>
-              <div style={{ fontSize: 44, marginBottom: 14 }}>🃏</div>
-              <h2 style={{ fontFamily: "'Cinzel', serif", fontSize: 18, margin: '0 0 10px', color: '#f4e4a6' }}>
-                Learn Poker Hands
+              <h2 style={{ fontFamily: "'Cinzel', serif", fontSize: 20, margin: '0 0 10px', color: '#f4e4a6' }}>
+                How Poker Works (At a Glance)
               </h2>
-              <p style={{ color: '#a8c4a8', fontSize: 14, lineHeight: 1.6, margin: '0 0 20px' }}>
-                Practice identifying poker hands and learn what beats what.
+              <p style={{ color: '#a8c4a8', fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
+                The goal is to win the pot by making the best 5-card hand or by getting everyone else to fold.
               </p>
+              <div style={{ display: 'grid', gap: 8, marginBottom: 18, textAlign: 'left' }}>
+                <div style={{ color: '#e8e4d9', fontSize: 14 }}>
+                  • You get <strong style={{ color: '#f4e4a6' }}>2 private cards</strong> (only you see these).
+                </div>
+                <div style={{ color: '#e8e4d9', fontSize: 14 }}>
+                  • <strong style={{ color: '#f4e4a6' }}>5 community cards</strong> are shared: flop (3), turn (1), river (1).
+                </div>
+                <div style={{ color: '#e8e4d9', fontSize: 14 }}>
+                  • Combine your 2 + the 5 community cards to make your <strong style={{ color: '#f4e4a6' }}>best 5-card hand</strong>.
+                </div>
+                <div style={{ color: '#e8e4d9', fontSize: 14 }}>
+                  • Betting rounds happen after each reveal.
+                </div>
+              </div>
               <Button onClick={startGame}>Start Practice</Button>
             </div>
             
@@ -683,7 +743,7 @@ export default function PokerBasics() {
 
               {/* Community Cards */}
               <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'center', minHeight: 96, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', minHeight: 96, alignItems: 'center', flexWrap: 'wrap' }}>
                   {stage === 'preflop' ? (
                     <div style={{ color: '#4a6b4a', fontSize: 12, fontStyle: 'italic' }}>Community cards will appear here</div>
                   ) : (
@@ -702,27 +762,58 @@ export default function PokerBasics() {
                 <div style={{ fontSize: 9, fontFamily: "'Cinzel', serif", color: '#6b7b6b', textAlign: 'center', marginBottom: 8, letterSpacing: '2px', textTransform: 'uppercase' }}>
                   Your Cards
                 </div>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
                   {gameData.hole.map((c, i) => <Card key={i} card={c} highlight={winningCardIds.has(c.id)} />)}
                 </div>
               </div>
             </div>
 
-            {/* Current Hand Display - always visible once flop is dealt */}
-            {result && (
+            {/* Current Hand Display - shows progress during play, reveals final hand at river */}
+            {result && !isRiver && (
+              <div style={{
+                background: 'linear-gradient(180deg, #1a2e1a 0%, #0f1a0f 100%)',
+                borderRadius: 10,
+                padding: 12,
+                textAlign: 'center',
+                marginBottom: 14,
+                border: '1px solid #2d4a2d',
+              }}>
+                <div style={{ fontSize: 10, color: '#6b7b6b', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: 2 }}>
+                  Current Hand
+                </div>
+                <div style={{ fontSize: 16, fontFamily: "'Cinzel', serif", fontWeight: 700, color: '#a8c4a8' }}>
+                  {result.name}
+                </div>
+                <div style={{ marginTop: 4, color: '#6b7b6b', fontSize: 11 }}>
+                  Keep dealing to see your final hand...
+                </div>
+              </div>
+            )}
+
+            {/* Final Hand Reveal at River */}
+            {result && isRiver && (
               <div style={{
                 background: 'linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%)',
                 borderRadius: 10,
-                padding: 14,
+                padding: 16,
                 textAlign: 'center',
                 marginBottom: 14,
                 border: '2px solid #c9a227',
+                boxShadow: '0 0 20px rgba(201,162,39,0.3)',
               }}>
-                <div style={{ fontSize: 10, color: '#6b7b6b', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: 2 }}>
-                  Your Best Hand
+                <div style={{ fontSize: 10, color: '#c9a227', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: 4 }}>
+                  🎉 Your Final Hand
                 </div>
-                <div style={{ fontSize: 20, fontFamily: "'Cinzel', serif", fontWeight: 700, color: '#c9a227' }}>
+                <div style={{ fontSize: 22, fontFamily: "'Cinzel', serif", fontWeight: 700, color: '#f4e4a6' }}>
                   {result.name}
+                </div>
+                {handInfo && (
+                  <div style={{ marginTop: 8, color: '#a8c4a8', fontSize: 13, lineHeight: 1.5 }}>
+                    {handInfo.desc}. {handInfo.tip}
+                  </div>
+                )}
+                <div style={{ marginTop: 10, color: '#6b7b6b', fontSize: 11, fontStyle: 'italic' }}>
+                  The glowing cards show which 5 cards make your best hand!
                 </div>
               </div>
             )}
